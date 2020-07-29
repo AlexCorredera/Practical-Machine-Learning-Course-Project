@@ -1,0 +1,154 @@
+---
+output:
+  html_document: default
+  word_document: default
+---
+# Practical Machine learning Course Project
+
+## Executive Summary
+This report analyzes the Weight Lifting Exercises Dataset from Groupware@LES in order to predict the quality classe of the execution of various weight lifting motions based on a range of predictive variables. A CART (rpart) model was used to fit a model which can effectively predict categorical outcomes via the splitting rules of the classification tree. This was cross validated with a GBM model. Cross validation indicated that the GBM model provided more accurate results and this model was used to provide final predictions on the testing dataset.
+
+## The Data
+The data was collected in an experimental study of six young health participants who were asked to complete one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz6SMeikHlk
+
+Original data was seperated by a testing and training dataset. The training dataset was then divided into two subsets, training_train and training_test datasets, these subsets were used for cross validation.
+
+## Model Selection
+
+To predict the outcome of the quality classe of the execution of the weight lifting curls, a CART (rpart) model and GBM model were tested with the outcome variable "classe" modeled as the dependent variable and 52 variables in the dataset as independent variables. Index variables and variables with many missing values were excluded. CART and GBM models are well suited for modeling categorical outcome variables and non-linear data.  
+
+The rpart and gbm function of the rpart and gbm packages, respectively, were used to fit the model to the training_train data sets. These results were then tested on the training_train data sets. The more accurate model, in this case GBM, was then selected for final predictions.
+
+## Data Analysis
+
+### Load in R Packages
+
+```{r packages}
+library(caret)
+library(rattle)
+library(rpart)
+library(gbm)
+```
+
+### Loading in Data
+
+Here data is loaded into R as data frame objects. 
+
+```{r loading data}
+training <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!", ""))
+testing <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!", ""))
+```
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+### Pre-processing Data
+
+Here we clean up the data a bit, removing the first seven columns which includes the index of the dataset, "X", and other identifying variables.
+
+```{r cleaning data}
+training <- training[, -(1:7)]
+testing <- testing[, -(1:7)]
+```
+
+We then check for variables with zero variance, many variables have near zero variance, though none have zero variance, so we leave them in.
+
+```{r NZV, results='hide'}
+nearZeroVar(training, saveMetrics = TRUE)
+```
+
+We also check for variables with many NAs and then remove those columns from the data set
+
+```{r NAs, results='hide'}
+sapply(training, function(x)sum(is.na(x)))
+#results are hidden but several variables have over 19,000 missing values. So we remove them here:
+trainIndex <- 0
+for(i in 1:ncol(training)) {
+        if(sum(is.na(training[, i])) > 19000){
+                trainIndex <- c(trainIndex, i)
+        }
+}
+trainIndex <- trainIndex[-1]
+training <- training[, -trainIndex]
+dim(training)
+# variables were removed
+```
+
+Let's now do the same preprocessing on the testing dataset.
+
+```{r test data cleaning}
+cleanVar <- names(testing) %in% names(training)
+testing <- testing[cleanVar]
+```
+
+### Cross validation
+To perform cross validation, we divide the training data set into two subsets. We then train two different models, a CART model and a GBM model on the training subset and then test these on the testing subset. The model with less error is then chosen to be used to predict classe on the testing dataset. 
+
+```{r cross validation}
+trainIndex <- createDataPartition(y=training$classe, p=0.75, list=FALSE)
+training_train <- training[trainIndex, ]
+training_test <- training[-trainIndex, ]
+```
+
+### Fitting the Model - CART model
+
+We now fit a CART (rpart) model on the training data with the rpart function from the rpart package.
+
+```{r mod fit rpart}
+modFit_rpart <- rpart(classe ~ ., data = training_train, method = "class")
+```
+
+And let's plot the classification tree in a fancy rpart plot with the rattle package.
+
+```{r rpart plot}
+fancyRpartPlot(modFit_rpart)
+```
+
+Let's next predict the values of the classe variable on the training_test set and store these in the variable predictions_rpart. We then look at the accuracy of these predictions in a confusion matrix.
+
+```{r rpart predictions}
+predictions_rpart <- predict(modFit_rpart, training_test, type = "class")
+confusionMatrix(predictions_rpart, training_test$classe)
+```
+
+The accuracy is estimated to be nearly 75%, indicating that the out of sample for this model is estimated to be around 25%.
+
+### Fitting the Model - GBM model
+
+We next fit a GBM model to the training_train data with a specified multinomial distribution.
+
+```{r mod fit gbm}
+modFit_gbm <- gbm(classe ~ ., data = training_train, distribution = "multinomial")
+```
+
+We then use this model to predict the classe values for the training_test data subset and check the accuracy of these results in a confusion matrix. 
+
+```{r gbm predictions}
+predictions_gbm <- predict.gbm(modFit_gbm, training_test, type = "response")
+predictions_gbm_final <- factor(colnames(predictions_gbm)[apply(predictions_gbm, 1, which.max)])
+confusionMatrix(predictions_gbm_final, training_test$classe)
+```
+
+The accuracy is estimated to be over 80% with the gbm model, indicating that the estimated out of sample error is less than 20%. Hence, these results indicate that the gbm model is a more accurate predictor of classe values than the CART model. 
+
+### Final Predictions
+
+Here we fit the testing data to the gbm model, which was determined to be the more accurate model in the cross validation process, to get the predicted outcomes for this second dataset. 
+
+```{r predictions}
+predictions_final <- predict.gbm(modFit_gbm, testing, type = "response")
+predictions_final <- factor(colnames(predictions_final)[apply(predictions_final, 1, which.max)])
+print(predictions_final)
+```
+
+## Conclusion
+In this report we built a prediction model to estimate the quality classe of an executed weight lifting curl by fitting a CART model and a GBM model on the Weight Lifting Exercises Dataset. We fit both models on a training subset of the original training dataset and then performed cross validation on a testing subset of the original training dataset. 
+
+Results of cross validation indicated that the GBM model provided more accurate predictions than the CART model. Finally, the GBM model was used to provide final predictions of classe values on the testing dataset.
